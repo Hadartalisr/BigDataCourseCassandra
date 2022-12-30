@@ -149,8 +149,10 @@ public class HW2StudentAnswer implements HW2API {
 
 	private void InsertItem(Item item) {
 		HashSet<String> categoriesSet = new HashSet<>();
-		for (String s : item.categories[0]) {
-			categoriesSet.add(s);
+		for (String[] categoriesArr : item.categories) {
+			for (String category : categoriesArr) {
+				categoriesSet.add(category);				
+			}
 		}
 
 		try {
