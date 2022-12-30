@@ -11,6 +11,7 @@ public class Review {
 	@JsonProperty(required = true)
 	public String asin;
 
+	@JsonProperty(required = true)
 	public String reviewerID;
 	public String reviewerName;
 	public float overall;

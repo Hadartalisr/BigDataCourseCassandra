@@ -15,12 +15,13 @@ import com.datastax.oss.driver.api.core.cql.ResultSet;
 import com.datastax.oss.driver.api.core.cql.Row;
 import com.datastax.oss.driver.api.core.metadata.schema.KeyspaceMetadata;
 import com.datastax.oss.driver.api.core.metadata.schema.TableMetadata;
+import com.datastax.oss.driver.shaded.guava.common.util.concurrent.RateLimiter;
 
 import bigdatacourse.hw2.HW2API;
+import bigdatacourse.hw2.studentcode.concurrency.ConcurrentStreamProcessor;
 import bigdatacourse.hw2.studentcode.helpers.Consts;
 import bigdatacourse.hw2.studentcode.helpers.IOHelpers;
 import bigdatacourse.hw2.studentcode.helpers.JsonHelpers;
-import bigdatacourse.hw2.studentcode.helpers.RateLimiter;
 import bigdatacourse.hw2.studentcode.models.Item;
 import bigdatacourse.hw2.studentcode.models.Review;
 
@@ -40,7 +41,7 @@ public class HW2StudentAnswer implements HW2API {
 	PreparedStatement pstmtSelectTableUserReviews;
 
 	// internals
-	private final int conccurentExecutions = 10; 
+	private final int conccurentExecutions = 250; 
 	private final JsonHelpers jsonHelpers = new JsonHelpers();
 	private RateLimiter rateLimiter;
 
@@ -58,7 +59,6 @@ public class HW2StudentAnswer implements HW2API {
 
 		System.out.println("Initializing connection to Cassandra... Done");
 		this.keyspace = keyspace;
-		this.rateLimiter = new RateLimiter(this.session, this.conccurentExecutions);
 	}
 
 	@Override
@@ -118,38 +118,52 @@ public class HW2StudentAnswer implements HW2API {
 		} catch (FileNotFoundException fileNotFoundException) {
 			return;
 		}
+		
+		long processedItems = ConcurrentStreamProcessor.process(itemsAsJsonStringsStream, conccurentExecutions,
+				new Processor<String>() {
 
-		itemsAsJsonStringsStream.forEach(itemsAsJsonString -> {
-			Item item;
-			try {
-				item = jsonHelpers.deserialize(itemsAsJsonString, Item.class);
-			} catch (IOException e) {
-				System.out.println(e);
-				return;
-			}
-
-			InsertItem(item, true);
-
-		});
-
+					@Override
+					public void process(String itemAsJsonString) {
+						Item item;
+						try {
+							item = jsonHelpers.deserialize(itemAsJsonString, Item.class);
+						} catch (IOException e) {
+							System.out.println(e);
+							return;
+						}
+						AlignItem(item);
+						InsertItem(item);					
+					}
+				
+			});
+		
+		System.out.println("processedItems : "+ processedItems);
+	}
+	
+	private void AlignItem(Item item) {
+		item.asin = (item.asin != null) ? item.asin : Consts.NOT_AVAILABLE_VALUE ;
+		item.title = (item.title != null) ? item.title : Consts.NOT_AVAILABLE_VALUE ;
+		item.imUrl = (item.imUrl != null) ? item.imUrl : Consts.NOT_AVAILABLE_VALUE ;
+		item.description = (item.description != null) ? item.description : Consts.NOT_AVAILABLE_VALUE ;
 	}
 
-	private void InsertItem(Item item, boolean async) {
+	private void InsertItem(Item item) {
 		HashSet<String> categoriesSet = new HashSet<>();
 		for (String s : item.categories[0]) {
 			categoriesSet.add(s);
 		}
 
-		BoundStatement bstmt = pstmtInsertTableItems.bind().setString(0, item.asin).setString(1, item.title)
+		try {
+			BoundStatement bstmt = pstmtInsertTableItems.bind().setString(0, item.asin).setString(1, item.title)
 				.setString(2, item.imUrl).setSet(3, categoriesSet, String.class).setString(4, item.title); // NOTE - for
 
-		try {
-			rateLimiter.execute(bstmt, async);
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			session.execute(bstmt);
+		} catch (Exception e) {
+			System.out.println(e);
 		}
 	}
+	
+
 
 	@Override
 	public void loadReviews(String pathReviewsFile) throws Exception {
@@ -160,16 +174,33 @@ public class HW2StudentAnswer implements HW2API {
 			return;
 		}
 
-		reviewsAsJsonStringsStream.forEach(reviewAsJsonString -> {
-			Review review;
-			try {
-				review = jsonHelpers.deserialize(reviewAsJsonString, Review.class);
-			} catch (IOException e) {
-				System.out.println(e);
-				return;
-			}
-			InsertReview(review, true);
+		ConcurrentStreamProcessor.process(reviewsAsJsonStringsStream, conccurentExecutions,
+			new Processor<String>() {
+
+				@Override
+				public void process(String reviewAsJsonString) {
+					Review review;
+					try {
+						review = jsonHelpers.deserialize(reviewAsJsonString, Review.class);
+					} catch (IOException e) {
+						System.out.println(e);
+						return;
+					}
+					AlignReview(review);
+					try {
+						InsertReview(review, true);		
+					} catch (Exception e) {
+						System.out.println(e);
+					}
+				}
+			
 		});
+	}
+
+	private void AlignReview(Review review) {
+		review.reviewerName = (review.reviewerName != null) ? review.reviewerName : Consts.NOT_AVAILABLE_VALUE ;
+		review.summary = (review.summary != null) ? review.summary : Consts.NOT_AVAILABLE_VALUE ;
+		review.reviewText = (review.reviewText != null) ? review.reviewText : Consts.NOT_AVAILABLE_VALUE ;
 	}
 
 	private void InsertReview(Review review, boolean async) {
@@ -181,13 +212,9 @@ public class HW2StudentAnswer implements HW2API {
 			.setFloat(4, review.overall)
 			.setString(5, review.summary)
 			.setString(6, review.reviewText);
+		
+		session.execute(bstmtInsertItemReview);
 
-		try {
-			rateLimiter.execute(bstmtInsertItemReview, async);
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
 		
 		BoundStatement bstmtInsertUserReview = pstmtInsertTableUserReviews.bind()
 				.setString(0, review.asin)
@@ -198,13 +225,10 @@ public class HW2StudentAnswer implements HW2API {
 				.setString(5, review.summary)
 				.setString(6, review.reviewText);
  
-		try {
-			rateLimiter.execute(bstmtInsertUserReview, async);
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+		session.execute(bstmtInsertItemReview);
 	}
+	
+
 
 	@Override
 	public void item(String asin) {
