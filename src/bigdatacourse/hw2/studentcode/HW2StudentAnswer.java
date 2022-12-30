@@ -4,13 +4,17 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.stream.Stream;
 
 import com.datastax.oss.driver.api.core.CqlSession;
+import com.datastax.oss.driver.api.core.cql.BoundStatement;
+import com.datastax.oss.driver.api.core.cql.PreparedStatement;
+import com.datastax.oss.driver.api.core.cql.ResultSet;
+import com.datastax.oss.driver.api.core.cql.Row;
 
 import bigdatacourse.hw2.HW2API;
+import bigdatacourse.hw2.studentcode.helpers.Consts;
 import bigdatacourse.hw2.studentcode.helpers.IOHelpers;
 import bigdatacourse.hw2.studentcode.helpers.JsonHelpers;
 import bigdatacourse.hw2.studentcode.models.Item;
@@ -21,13 +25,13 @@ public class HW2StudentAnswer implements HW2API {
 	public static final String NOT_AVAILABLE_VALUE = "na";
 
 	// CQL stuff
-	// TODO: add here create table and query designs
 
 	// cassandra session
 	private CqlSession session;
 
 	// prepared statements
-	// TODO: add here prepared statements variables
+	PreparedStatement pstmtInsertTableItems;
+	PreparedStatement pstmtSelectTableItems;
 
 	// internals
 	private final JsonHelpers jsonHelpers = new JsonHelpers();
@@ -61,14 +65,15 @@ public class HW2StudentAnswer implements HW2API {
 
 	@Override
 	public void createTables() {
-		// TODO: implement this function
-		System.out.println("TODO: implement this function...");
+		session.execute(Consts.CQL_CREATE_ITEMS_TABLE);
+		System.out.println("created table: " + Consts.TABLE_ITEMS);
 	}
 
 	@Override
 	public void initialize() {
-		// TODO: implement this function
-		System.out.println("TODO: implement this function...");
+		pstmtInsertTableItems = session.prepare(Consts.CQL_INSERT_TABLE_ITEMS);
+		pstmtSelectTableItems = session.prepare(Consts.CQL_SELECT_TABLE_ITEM);
+		System.out.println("Successfully initialized the logic");
 	}
 
 	@Override
@@ -89,10 +94,25 @@ public class HW2StudentAnswer implements HW2API {
 				return;
 			}
 
-			System.out.println(item);
+			InsertItem(item, false);
 
 		});
 
+	}
+
+	private void InsertItem(Item item, boolean async) {
+		HashSet<String> categoriesSet = new HashSet<>();
+		for (String s : item.categories[0]) {
+			categoriesSet.add(s);
+		}
+
+		BoundStatement bstmt = pstmtInsertTableItems.bind().setString(0, item.asin).setString(1, item.title)
+				.setString(2, item.imUrl).setSet(3, categoriesSet, String.class).setString(4, item.title); // NOTE - for
+
+		if (async)
+			session.executeAsync(bstmt);
+		else
+			session.execute(bstmt);
 	}
 
 	@Override
@@ -103,21 +123,24 @@ public class HW2StudentAnswer implements HW2API {
 
 	@Override
 	public void item(String asin) {
-		// TODO: implement this function
-		System.out.println("TODO: implement this function...");
+
+		BoundStatement bstmt = pstmtSelectTableItems.bind().setString("asin", asin);
+
+		ResultSet rs = session.execute(bstmt);
+		Row row = rs.one();
+
+		if (row == null) {
+			// required format - if the asin does not exists return this value
+			System.out.println("not exists");
+			return;
+		}
 
 		// required format - example for asin B005QB09TU
-		System.out.println("asin: " + "B005QB09TU");
-		System.out.println("title: " + "Circa Action Method Notebook");
-		System.out.println("image: " + "http://ecx.images-amazon.com/images/I/41ZxT4Opx3L._SY300_.jpg");
-		System.out.println("categories: " + new HashSet<String>(
-				Arrays.asList("Notebooks & Writing Pads", "Office & School Supplies", "Office Products", "Paper")));
-		System.out.println("description: "
-				+ "Circa + Behance = Productivity. The minute-to-minute flexibility of Circa note-taking meets the organizational power of the Action Method by Behance. The result is enhanced productivity, so you'll formulate strategies and achieve objectives even more efficiently with this Circa notebook and project planner. Read Steve's blog on the Behance/Levenger partnership Customize with your logo. Corporate pricing available. Please call 800-357-9991.");
-		;
-
-		// required format - if the asin does not exists return this value
-		System.out.println("not exists");
+		System.out.println("asin: " + row.getString("asin"));
+		System.out.println("title: " + row.getString("title"));
+		System.out.println("image: " + row.getString("imUrl"));
+		System.out.println("categories: " + row.getSet("categories", String.class));
+		System.out.println("description: " + row.getString("description"));
 	}
 
 	@Override
