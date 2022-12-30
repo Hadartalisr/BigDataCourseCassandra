@@ -227,7 +227,7 @@ public class HW2StudentAnswer implements HW2API {
 				.setString(5, review.summary)
 				.setString(6, review.reviewText);
  
-		session.execute(bstmtInsertItemReview);
+		session.execute(bstmtInsertUserReview);
 	}
 	
 
