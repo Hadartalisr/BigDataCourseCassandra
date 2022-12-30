@@ -51,6 +51,7 @@ public class HW2CLI {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
+		//hw2API.createTables();
 		hw2API.initialize();
 
 		// looping

@@ -6,14 +6,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class Review {
 	@JsonProperty(required = true)
-	private long unixReviewTime;
+	public long unixReviewTime;
 
 	@JsonProperty(required = true)
-	private String asin;
+	public String asin;
 
-	private String reviewerID;
-	private String reviewerName;
-	private double overall;
-	private String summary;
-	private String reviewText;
+	public String reviewerID;
+	public String reviewerName;
+	public float overall;
+	public String summary;
+	public String reviewText;
 }
